@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+  </head>
+  <body>
+    <h1>Lobby</h1>
+    <div id="chat">
+      <div id="logs"></div>
+      <form id="form">
+        <input type="text" id="msg" size="64" autofocus />
+        <input type="submit" value="send" />
+      </form>
+    </div>
+    <script type="text/javascript">
+window.onload = function() {
+  let conn;
+  let logs = document.getElementById("logs");
+  let msg = document.getElementById("msg");
+  let form = document.getElementById("form");
+
+  function appendLog(item) {
+    const doScroll = logs.scrollTop > logs.scrollHeight - logs.clientHeight - 1;
+    logs.appendChild(item)
+    if (doScroll) {
+      logs.scrollTop = logs.scrollHeight - logs.clientHeight;
+    }
+  }
+
+  form.onsubmit = function() {
+    if (!conn) {
+      return false;
+    }
+    if (!msg.value) {
+      return false;
+    }
+    conn.send(msg.value);
+    msg.value = "";
+    return false;
+  }
+
+  if (!window["WebSocket"]) {
+    let err = document.createElement("div")
+    err.textContent = "Your browser does not support websockets"
+    console.log(err.textContent)
+    appendLog(err)
+    return
+  }
+  conn = new WebSocket("ws://" + document.location.host + "/lobby/ws");
+  conn.onclose = function(event) {
+    let item = document.createElement("div");
+    item.textContent = "Connection closed."
+    appendLog(item)
+  }
+
+  conn.onmessage = function(event) {
+    const messages = event.data.split("\n");
+    for (let i = 0; i < messages.length; i++) {
+      const item = document.createElement("div");
+      item.textContent = messages[i];
+      appendLog(item)
+    }
+  }
+} 
+    </script>
+  </body>
+</html>
+
