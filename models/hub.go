@@ -1,42 +1,58 @@
 package models
 
+import "log"
+
 type Hub struct {
-	Clients map[*Client]bool
+	Rooms map[string]map[*Client]bool
 
-	Broadcast chan []byte
+	Broadcast chan Message
 
-	Register chan *Client
+	Register chan *Subscription
 
-	Unregister chan *Client
+	Unregister chan *Subscription
 }
 
 func NewHub() *Hub {
 	return &Hub{
-		Broadcast: make(chan []byte),
-		Register: make(chan *Client),
-		Unregister: make(chan *Client),
-		Clients: make(map[*Client]bool),
+		Broadcast: make(chan Message),
+		Register: make(chan *Subscription),
+		Unregister: make(chan *Subscription),
+		Rooms: make(map[string]map[*Client]bool),
 	}
 }
 
 func (h *Hub) Run() {
 	for {
 		select {
-		case client := <-h.Register:
-			h.Clients[client] = true
-		  go h.BroadcastConnection(client)
-		case client := <-h.Unregister:
-			if _, ok := h.Clients[client]; ok {
-				go h.BroadcastDisconnection(client)
-				delete(h.Clients, client)
-				close(client.Send)
+		case subscription := <-h.Register:
+			connections := h.Rooms[subscription.Room]
+			if connections == nil {
+				h.Rooms[subscription.Room] = make(map[*Client]bool)
 			}
+			h.Rooms[subscription.Room][subscription.Client] = true
+			go h.BroadcastConnection(subscription.Room)
+		case subscription := <-h.Unregister:
+			connections := h.Rooms[subscription.Room]
+			if connections != nil {
+				if _, ok := connections[subscription.Client]; ok {
+					go h.BroadcastDisconnection(subscription.Room)
+					delete(connections, subscription.Client)
+					close(subscription.Client.Send)
+					if len(connections) == 0 {
+						delete(h.Rooms, subscription.Room)
+					}
+				}
+			}
+			log.Printf("unregistered: %v", h.Rooms[subscription.Room])
 		case message := <-h.Broadcast:
-			for client := range h.Clients {
+			log.Printf("message %v\n", message)
+			connections := h.Rooms[message.Room]
+			log.Printf("connections to %v: %v", message.Room, connections)
+			for client := range connections {
 				select {
-				case client.Send <- message:
+				case client.Send <- message.Data:
 				default:
-					delete(h.Clients, client)
+					delete(connections, client)
 					close(client.Send)
 				}
 			}
@@ -44,10 +60,18 @@ func (h *Hub) Run() {
 	}
 }
 
-func (h *Hub) BroadcastConnection(client *Client) {
-	h.Broadcast <- []byte("A user has connected")
+func (h *Hub) BroadcastConnection(room string) {
+	msg := Message{
+		Room: room,
+		Data: []byte("A user has connected"),
+	}
+	h.Broadcast <- msg
 }
 
-func (h *Hub) BroadcastDisconnection(client *Client) {
-	h.Broadcast <- []byte("A user has disconnected")
+func (h *Hub) BroadcastDisconnection(room string) {
+	msg := Message{
+		Room: room,
+		Data: []byte("A user has disconnected"),
+	}
+	h.Broadcast <- msg
 }

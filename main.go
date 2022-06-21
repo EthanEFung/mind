@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"html/template"
-	"log"
+	"math/rand"
 	"net/http"
+	"time"
 
 	"github.com/ethanefung/mind/controllers"
 	"github.com/ethanefung/mind/models"
@@ -14,20 +14,22 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 )
 
-func executeTemplate(w http.ResponseWriter, path string, data interface{}) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	tpl, err := template.ParseFiles(path)
-	if err != nil {
-		log.Printf("Error Parsing the file with path \"%s\"", path)
-		http.Error(w, "Something went wrong", http.StatusInternalServerError)
-		return
+const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+	"abcdefghijklmnopqrstuvwxyz" +
+	"0123456789" + 
+	"!@#$%^&*()_+-=;"
+
+var password = createPassword(20)
+
+func createPassword(length int) string {
+	var seededRand *rand.Rand = rand.New(
+		rand.NewSource(time.Now().UnixNano()),
+	)
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[seededRand.Intn(len(charset))]
 	}
-	err = tpl.Execute(w, data)
-	if err != nil {
-		log.Printf("Error executing template with path \"%s\": %v", path, err)
-		http.Error(w, "Something went wrong", http.StatusInternalServerError)
-		return
-	}
+	return string(b)
 }
 
 func loginHandler(w http.ResponseWriter, r *http.Request) {
@@ -35,6 +37,13 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	if username == "" {
 		http.Error(w, "username required", http.StatusForbidden)
 	}
+
+	r.SetBasicAuth(username, password)
+	token := r.Header["Authorization"][0]
+  w.Header().Add("Authorization", token)
+	// fmt.Printf("request headers: %v\n", r.Header)
+
+	fmt.Printf("headers: %v\n", w.Header())
 
 	/*
 	  here we will want to create some credentials for
@@ -71,13 +80,17 @@ func main() {
 
 	tpl = views.Must(views.ParseFS(templates.FS, "lobby.gohtml"))
 	r.Route("/lobby", func(r chi.Router) {
+		r.Use(controllers.LobbyContext)
 		r.Get("/", controllers.StaticHandler(tpl))
 		r.Get("/ws", controllers.WSHandler(hub))
 	})
 
 	tpl = views.Must(views.ParseFS(templates.FS, "room.gohtml"))
+
 	r.Route("/room/{roomID}", func(r chi.Router) {
+		r.Use(controllers.RoomCtx)
 		r.Get("/", controllers.StaticHandler(tpl))
+		r.Get("/ws", controllers.WSHandler(hub))
 	})
 
 	r.NotFound(notFoundHandler)
